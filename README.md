@@ -22,7 +22,7 @@
 将项目中的 HTML 文件保存为：
 
 ```text
-drone_pid_threejs_demo.html
+Simulator.html
 ```
 
 然后使用现代浏览器打开即可。
@@ -48,7 +48,7 @@ python -m http.server 8000
 然后在浏览器访问：
 
 ```text
-http://localhost:8000/drone_pid_threejs_demo.html
+http://localhost:8000/Simulator.html
 ```
 
 ## 说明
