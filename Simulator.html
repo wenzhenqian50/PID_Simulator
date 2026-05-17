@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Three.js 无人机 PID 参数调节演示</title>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: rgba(17, 25, 43, 0.88);
+      --text: #e7eefc;
+      --muted: #8ea0bd;
+      --line: rgba(255,255,255,0.12);
+      --accent: #59d7ff;
+      --good: #4ade80;
+      --warn: #fbbf24;
+      --bad: #fb7185;
+      --font-ui: Inter, "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-display: Inter, "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Cascadia Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.5;
+      letter-spacing: 0.005em;
+      text-rendering: geometricPrecision;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-variant-numeric: tabular-nums;
+      background: radial-gradient(circle at 40% 20%, #1c335d 0, #0b1020 40%, #050816 100%);
+    }
+
+    #scene { position: fixed; inset: 0; }
+
+    .hud {
+      position: fixed;
+      inset: 16px;
+      display: grid;
+      grid-template-columns: 360px 1fr 360px;
+      gap: 16px;
+      pointer-events: none;
+    }
+
+    .panel {
+      pointer-events: auto;
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+    }
+
+    .panel h1,
+    .panel h2,
+    .panel h3 {
+      margin: 0;
+      font-family: var(--font-display);
+      letter-spacing: -0.015em;
+    }
+
+    .left, .right {
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .left::-webkit-scrollbar,
+    .right::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+      background: transparent;
+    }
+
+    .panel-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), transparent);
+    }
+
+    .panel-header h1,
+    .panel-header h2 {
+      font-size: 20px;
+      line-height: 1.18;
+      font-weight: 760;
+      letter-spacing: -0.018em;
+      color: #f1f7ff;
+    }
+
+    .panel-header p {
+      margin: 9px 0 0;
+      color: rgba(183, 199, 224, 0.86);
+      font-size: 12.5px;
+      font-weight: 420;
+      line-height: 1.68;
+      letter-spacing: 0.01em;
+    }
+
+    .section {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section:last-child { border-bottom: none; }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: #d7e5fa;
+      font-weight: 680;
+      letter-spacing: 0.018em;
+    }
+
+    .axis-tag {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: rgba(89, 215, 255, 0.12);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 720;
+      letter-spacing: 0.035em;
+      border: 1px solid rgba(89, 215, 255, 0.22);
+    }
+
+    .control {
+      margin: 14px 0;
+      padding: 12px 13px 14px;
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.025)), rgba(8, 14, 28, 0.26);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 28px rgba(0,0,0,0.13);
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: #dbe8ff;
+      font-size: 12.5px;
+      font-weight: 590;
+      letter-spacing: 0.006em;
+      margin-bottom: 8px;
+    }
+
+    .control label span:last-child {
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.015em;
+    }
+
+    .slider-shell {
+      position: relative;
+      display: flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 3px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)), rgba(3, 8, 20, 0.34);
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.32), 0 1px 0 rgba(255,255,255,0.06);
+    }
+
+    input[type="range"] {
+      --progress: 50%;
+      position: relative;
+      width: 100%;
+      height: 22px;
+      margin: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      cursor: pointer;
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 10px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(89, 215, 255, 0.98) 0%, rgba(125, 235, 255, 0.92) var(--progress), rgba(255, 255, 255, 0.13) var(--progress), rgba(255, 255, 255, 0.07) 100%);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.45);
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 22px;
+      height: 22px;
+      margin-top: -6px;
+      border-radius: 50%;
+      border: 2px solid rgba(233, 249, 255, 0.95);
+      background: radial-gradient(circle at 35% 30%, #ffffff 0, #c8f5ff 28%, #59d7ff 58%, #1597c4 100%);
+      box-shadow: 0 0 0 5px rgba(89, 215, 255, 0.12), 0 8px 18px rgba(0, 0, 0, 0.38), 0 0 18px rgba(89, 215, 255, 0.45);
+      transition: transform 0.14s ease, box-shadow 0.14s ease;
+    }
+
+    input[type="range"]:hover::-webkit-slider-thumb,
+    input[type="range"]:focus-visible::-webkit-slider-thumb {
+      transform: scale(1.08);
+      box-shadow: 0 0 0 7px rgba(89, 215, 255, 0.16), 0 10px 22px rgba(0, 0, 0, 0.42), 0 0 24px rgba(89, 215, 255, 0.62);
+    }
+
+    input[type="range"]::-moz-range-track {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.10);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.45);
+    }
+
+    input[type="range"]::-moz-range-progress {
+      height: 10px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(89, 215, 255, 0.98), rgba(125, 235, 255, 0.92));
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid rgba(233, 249, 255, 0.95);
+      background: #59d7ff;
+      box-shadow: 0 0 0 5px rgba(89, 215, 255, 0.12), 0 8px 18px rgba(0, 0, 0, 0.38), 0 0 18px rgba(89, 215, 255, 0.45);
+      transition: transform 0.14s ease, box-shadow 0.14s ease;
+    }
+
+    input[type="range"]:hover::-moz-range-thumb,
+    input[type="range"]:focus-visible::-moz-range-thumb { transform: scale(1.08); }
+
+    button {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      outline: none;
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 650;
+      letter-spacing: 0.006em;
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      background: rgba(89, 215, 255, 0.14);
+      border-color: rgba(89, 215, 255, 0.4);
+    }
+
+    .axis-picker {
+      position: relative;
+      padding: 4px;
+      border-radius: 22px;
+      background: radial-gradient(circle at 18% 16%, rgba(89, 215, 255, 0.16), transparent 34%), linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.025)), rgba(6, 13, 27, 0.34);
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 30px rgba(0,0,0,0.16);
+    }
+
+    .axis-picker-button {
+      width: 100%;
+      min-height: 64px;
+      display: grid;
+      grid-template-columns: 38px 1fr 28px;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 13px;
+      border-radius: 18px;
+      border: 1px solid rgba(89, 215, 255, 0.16);
+      background: linear-gradient(135deg, rgba(89, 215, 255, 0.14), rgba(255,255,255,0.045) 46%, rgba(255,255,255,0.025)), rgba(6, 12, 26, 0.40);
+      box-shadow: inset 0 1px 12px rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.26);
+      text-align: left;
+    }
+
+    .axis-picker-button:hover,
+    .axis-picker-button:focus-visible,
+    .axis-picker.open .axis-picker-button {
+      border-color: rgba(89, 215, 255, 0.42);
+      background: linear-gradient(135deg, rgba(89, 215, 255, 0.20), rgba(255,255,255,0.055) 50%, rgba(255,255,255,0.03)), rgba(6, 12, 26, 0.48);
+      box-shadow: inset 0 1px 12px rgba(255,255,255,0.055), 0 0 0 4px rgba(89, 215, 255, 0.08), 0 14px 28px rgba(0,0,0,0.20);
+    }
+
+    .axis-orb {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: #06111f;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      background: radial-gradient(circle at 32% 26%, #ffffff 0, #cff7ff 24%, #59d7ff 58%, #108fbd 100%);
+      box-shadow: 0 0 0 5px rgba(89, 215, 255, 0.10), 0 10px 20px rgba(0,0,0,0.28), 0 0 24px rgba(89, 215, 255, 0.32);
+    }
+
+    .axis-copy { min-width: 0; }
+
+    .axis-main {
+      display: block;
+      color: #eef8ff;
+      font-size: 14.5px;
+      font-weight: 720;
+      letter-spacing: -0.006em;
+      line-height: 1.22;
+    }
+
+    .axis-sub {
+      display: block;
+      margin-top: 5px;
+      color: rgba(174, 190, 217, 0.86);
+      font-size: 11.5px;
+      font-weight: 420;
+      line-height: 1.32;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .axis-chevron {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.10);
+      transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+    }
+
+    .axis-chevron::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-right: 2px solid rgba(231, 238, 252, 0.78);
+      border-bottom: 2px solid rgba(231, 238, 252, 0.78);
+      transform: translateY(-2px) rotate(45deg);
+    }
+
+    .axis-picker.open .axis-chevron { transform: rotate(180deg); }
+
+    .axis-picker-menu {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 9px;
+      padding: 2px;
+      overflow: hidden;
+      max-height: 180px;
+      opacity: 1;
+      transform: translateY(0);
+      transition: max-height 0.20s ease, opacity 0.16s ease, transform 0.16s ease, margin-top 0.16s ease;
+    }
+
+    .axis-picker:not(.open) .axis-picker-menu {
+      max-height: 0;
+      opacity: 0;
+      transform: translateY(-6px);
+      margin-top: 0;
+      pointer-events: none;
+    }
+
+    .axis-option {
+      min-height: 48px;
+      padding: 10px 11px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.045);
+      color: #dce9ff;
+      text-align: left;
+    }
+
+    .axis-option:hover,
+    .axis-option:focus-visible {
+      border-color: rgba(89, 215, 255, 0.28);
+      background: rgba(89, 215, 255, 0.10);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.18);
+    }
+
+    .axis-option.active {
+      color: #f2fbff;
+      border-color: rgba(89, 215, 255, 0.42);
+      background: linear-gradient(135deg, rgba(89, 215, 255, 0.22), rgba(89, 215, 255, 0.08)), rgba(255,255,255,0.045);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 3px rgba(89, 215, 255, 0.08);
+    }
+
+    .axis-option strong {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: -0.004em;
+      line-height: 1.2;
+    }
+
+    .axis-option span {
+      display: block;
+      margin-top: 4px;
+      color: rgba(174, 190, 217, 0.86);
+      font-size: 10.8px;
+      font-weight: 420;
+      line-height: 1.24;
+    }
+
+    .button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .button-grid .wide { grid-column: 1 / -1; }
+    .pill-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+    .metric {
+      padding: 12px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+    }
+
+    .metric .name {
+      color: rgba(174, 190, 217, 0.82);
+      font-size: 11.5px;
+      font-weight: 520;
+      letter-spacing: 0.018em;
+      margin-bottom: 6px;
+    }
+
+    .metric .value {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: -0.035em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .center-note {
+      align-self: start;
+      justify-self: center;
+      margin-top: 8px;
+      padding: 12px 16px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.32);
+      border: 1px solid var(--line);
+      color: #cfe3ff;
+      font-size: 12.5px;
+      font-weight: 520;
+      letter-spacing: 0.01em;
+      pointer-events: auto;
+      backdrop-filter: blur(8px);
+    }
+
+    canvas#chart {
+      width: 100%;
+      height: 220px;
+      display: block;
+      background: rgba(0,0,0,0.18);
+      border-radius: 16px;
+      border: 1px solid var(--line);
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 11.5px;
+      font-weight: 540;
+      letter-spacing: 0.012em;
+    }
+
+    .legend span::before {
+      content: "";
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: -1px;
+      background: currentColor;
+    }
+
+    .legend .target { color: #fbbf24; }
+    .legend .current { color: #59d7ff; }
+    .legend .error { color: #fb7185; }
+
+    .tip {
+      color: rgba(174, 190, 217, 0.84);
+      font-size: 12px;
+      font-weight: 420;
+      line-height: 1.75;
+      letter-spacing: 0.006em;
+      margin-top: 10px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      font-weight: 520;
+      color: rgba(174, 190, 217, 0.86);
+      letter-spacing: 0.01em;
+      margin-top: 10px;
+    }
+
+    .status-light { display: inline-flex; align-items: center; gap: 8px; font-weight: 680; }
+    .status-light::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--good); box-shadow: 0 0 12px var(--good); }
+    .status-light.warn::before { background: var(--warn); box-shadow: 0 0 12px var(--warn); }
+    .status-light.bad::before { background: var(--bad); box-shadow: 0 0 12px var(--bad); }
+
+    .mini-table { width: 100%; border-collapse: collapse; font-size: 12px; font-weight: 430; color: #dce7fb; }
+    .mini-table td { padding: 7px 0; border-bottom: 1px dashed rgba(255,255,255,0.12); }
+    .mini-table td:last-child { text-align: right; color: var(--accent); font-weight: 560; font-variant-numeric: tabular-nums; }
+
+    .test-panel {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(74, 222, 128, 0.28);
+      background: rgba(74, 222, 128, 0.08);
+      color: #bbf7d0;
+      font-size: 11.5px;
+      font-weight: 500;
+      line-height: 1.6;
+      letter-spacing: 0.004em;
+    }
+
+    @media (max-width: 1120px) {
+      body { overflow: auto; }
+      #scene { position: fixed; height: 100vh; }
+      .hud { position: relative; inset: auto; grid-template-columns: 1fr; padding: 12px; }
+      .center-note { order: -1; }
+      .left, .right { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="scene"></div>
+
+  <main class="hud">
+    <aside class="panel left">
+      <div class="panel-header">
+        <h1>无人机 PID 参数调节演示</h1>
+        <p>调节目标姿态和 PID 参数，观察四旋翼姿态、响应速度、超调和稳态误差。该页面是教学演示模型，不等价于真实飞控固件。</p>
+      </div>
+
+      <section class="section">
+        <div class="section-title">目标值 Setpoint <span class="axis-tag">单位：角度 / 米</span></div>
+        <div id="setpointControls"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">选择调节轴 <span class="axis-tag" id="activeAxisTag">Roll</span></div>
+        <div class="axis-picker" id="axisPicker">
+          <button class="axis-picker-button" id="axisPickerButton" type="button" aria-haspopup="listbox" aria-expanded="false">
+            <span class="axis-orb" id="axisOrb">RL</span>
+            <span class="axis-copy">
+              <span class="axis-main" id="axisPickerLabel">Roll 横滚</span>
+              <span class="axis-sub" id="axisPickerSub">绕机体 X 轴倾斜，观察左右侧翻响应</span>
+            </span>
+            <span class="axis-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="axis-picker-menu" id="axisPickerMenu" role="listbox" aria-label="选择调节轴">
+            <button class="axis-option active" type="button" data-axis="roll" role="option" aria-selected="true"><strong>Roll 横滚</strong><span>左右侧倾</span></button>
+            <button class="axis-option" type="button" data-axis="pitch" role="option" aria-selected="false"><strong>Pitch 俯仰</strong><span>前后倾斜</span></button>
+            <button class="axis-option" type="button" data-axis="yaw" role="option" aria-selected="false"><strong>Yaw 偏航</strong><span>机头旋转</span></button>
+            <button class="axis-option" type="button" data-axis="altitude" role="option" aria-selected="false"><strong>Altitude 高度</strong><span>垂直升降</span></button>
+          </div>
+        </div>
+        <div class="tip">先选择一个轴，再调 Kp / Ki / Kd。默认参数已调成快速收敛型：Kp 提供较快响应，Kd 提供足够阻尼，Ki 只保留小量用于消除长期误差。当前范围：Kp 0~60，Ki 0~15，Kd 0~40。</div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">PID 参数 <span class="axis-tag">当前轴</span></div>
+        <div id="pidControls"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">操作</div>
+        <div class="button-grid">
+          <button id="presetStable">快速收敛预设</button>
+          <button id="presetAggressive">灵敏预设</button>
+          <button id="disturb">施加扰动</button>
+          <button id="toggleWind">开启阵风</button>
+          <button id="reset" class="wide">重置无人机状态</button>
+        </div>
+      </section>
+    </aside>
+
+    <div class="center-note">鼠标拖动旋转视角，滚轮缩放；调大 Kp 可让响应更快，但过大容易振荡。</div>
+
+    <aside class="panel right">
+      <div class="panel-header">
+        <h2>响应监视器</h2>
+        <p>曲线展示所选轴的目标值、当前值和误差。观察曲线可以直观看出欠阻尼、超调、振荡和稳态误差。</p>
+      </div>
+
+      <section class="section">
+        <div class="pill-row">
+          <div class="metric"><div class="name">当前值</div><div class="value" id="currentValue">0.00</div></div>
+          <div class="metric"><div class="name">目标值</div><div class="value" id="targetValue">0.00</div></div>
+          <div class="metric"><div class="name">误差</div><div class="value" id="errorValue">0.00</div></div>
+          <div class="metric"><div class="name">控制输出</div><div class="value" id="outputValue">0.00</div></div>
+        </div>
+        <div class="status-row">
+          <span id="statusLight" class="status-light">稳定</span>
+          <span id="windStatus">阵风：关闭</span>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">实时响应曲线 <span class="axis-tag" id="chartAxisTag">Roll</span></div>
+        <canvas id="chart" width="640" height="320"></canvas>
+        <div class="legend"><span class="target">目标</span><span class="current">当前</span><span class="error">误差</span></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">调参观察要点</div>
+        <table class="mini-table">
+          <tr><td>Kp 过小</td><td>响应慢，误差消除慢</td></tr>
+          <tr><td>Kp 过大</td><td>响应很猛，超调、振荡甚至发散</td></tr>
+          <tr><td>Ki 增大</td><td>消除稳态误差，但可能积累过冲</td></tr>
+          <tr><td>Kd 增大</td><td>抑制变化速度，减少超调</td></tr>
+          <tr><td>扰动测试</td><td>检查控制器恢复能力</td></tr>
+        </table>
+        <div class="test-panel" id="testPanel">自检：等待脚本加载...</div>
+      </section>
+    </aside>
+  </main>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const DEG = Math.PI / 180;
+    const RAD = 180 / Math.PI;
+    const PID_OUTPUT_LIMIT = 80;
+    const PID_INTEGRAL_LIMIT = 5;
+
+    const axisMeta = {
+      roll: { label: "Roll 横滚", short: "Roll", unit: "°", scale: RAD, invScale: DEG, min: -35, max: 35, step: 1 },
+      pitch: { label: "Pitch 俯仰", short: "Pitch", unit: "°", scale: RAD, invScale: DEG, min: -35, max: 35, step: 1 },
+      yaw: { label: "Yaw 偏航", short: "Yaw", unit: "°", scale: RAD, invScale: DEG, min: -90, max: 90, step: 1 },
+      altitude: { label: "Altitude 高度", short: "Altitude", unit: "m", scale: 1, invScale: 1, min: 0.5, max: 5, step: 0.1 }
+    };
+
+    const params = {
+      roll: { kp: 16.0, ki: 0.0, kd: 5.0, target: 0 },
+      pitch: { kp: 16.0, ki: 0.18, kd: 5.0, target: 0 },
+      yaw: { kp: 14.0, ki: 0.08, kd: 6.2, target: 0 },
+      altitude: { kp: 12.0, ki: 0.25, kd: 4.2, target: 2.2 }
+    };
+
+    const pidRanges = {
+      kp: { label: "Kp 比例", min: 0, max: 60, step: 0.1 },
+      ki: { label: "Ki 积分", min: 0, max: 15, step: 0.01 },
+      kd: { label: "Kd 微分", min: 0, max: 40, step: 0.1 }
+    };
+
+    const state = {
+      roll: 0, pitch: 0, yaw: 0, altitude: 2.2,
+      rollRate: 0, pitchRate: 0, yawRate: 0, altitudeRate: 0,
+      wind: false, time: 0, activeAxis: "roll",
+      outputs: { roll: 0, pitch: 0, yaw: 0, altitude: 0 },
+      disturbance: { roll: 0, pitch: 0, yaw: 0, altitude: 0 }
+    };
+
+    const controllers = {};
+
+    class PIDController {
+      constructor(axis) {
+        this.axis = axis;
+        this.integral = 0;
+        this.prevError = 0;
+      }
+      reset() {
+        this.integral = 0;
+        this.prevError = 0;
+      }
+      update(target, current, dt) {
+        const p = params[this.axis];
+        const error = target - current;
+        this.integral += error * dt;
+        this.integral = clamp(this.integral, -PID_INTEGRAL_LIMIT, PID_INTEGRAL_LIMIT);
+        const derivative = (error - this.prevError) / Math.max(dt, 1e-4);
+        this.prevError = error;
+        return clamp(p.kp * error + p.ki * this.integral + p.kd * derivative, -PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
+      }
+    }
+
+    Object.keys(params).forEach(axis => controllers[axis] = new PIDController(axis));
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function fmt(axis, value) {
+      const meta = axisMeta[axis];
+      return `${(value * meta.scale).toFixed(axis === "altitude" ? 2 : 1)}${meta.unit}`;
+    }
+
+    const setpointControls = document.getElementById("setpointControls");
+    const pidControls = document.getElementById("pidControls");
+    const axisPicker = document.getElementById("axisPicker");
+    const axisPickerButton = document.getElementById("axisPickerButton");
+    const axisPickerLabel = document.getElementById("axisPickerLabel");
+    const axisPickerSub = document.getElementById("axisPickerSub");
+    const axisOrb = document.getElementById("axisOrb");
+    const axisOptions = Array.from(document.querySelectorAll(".axis-option"));
+    const activeAxisTag = document.getElementById("activeAxisTag");
+    const chartAxisTag = document.getElementById("chartAxisTag");
+    const currentValue = document.getElementById("currentValue");
+    const targetValue = document.getElementById("targetValue");
+    const errorValue = document.getElementById("errorValue");
+    const outputValue = document.getElementById("outputValue");
+    const statusLight = document.getElementById("statusLight");
+    const windStatus = document.getElementById("windStatus");
+    const testPanel = document.getElementById("testPanel");
+
+    function updateSliderProgress(input) {
+      const min = Number(input.min);
+      const max = Number(input.max);
+      const value = Number(input.value);
+      const progress = ((value - min) / (max - min)) * 100;
+      input.style.setProperty("--progress", `${clamp(progress, 0, 100)}%`);
+    }
+
+    function createSlider({ parent, id, label, min, max, step, value, onInput, formatter = v => v }) {
+      const wrap = document.createElement("div");
+      wrap.className = "control";
+      const lab = document.createElement("label");
+      const name = document.createElement("span");
+      const val = document.createElement("span");
+      name.textContent = label;
+      val.id = `${id}Value`;
+      val.textContent = formatter(value);
+      lab.append(name, val);
+      const shell = document.createElement("div");
+      shell.className = "slider-shell";
+      const input = document.createElement("input");
+      input.type = "range";
+      input.min = min;
+      input.max = max;
+      input.step = step;
+      input.value = value;
+      input.id = id;
+      updateSliderProgress(input);
+      input.addEventListener("input", () => {
+        const n = Number(input.value);
+        val.textContent = formatter(n);
+        updateSliderProgress(input);
+        onInput(n);
+      });
+      shell.appendChild(input);
+      wrap.append(lab, shell);
+      parent.appendChild(wrap);
+      return input;
+    }
+
+    function buildSetpointUI() {
+      setpointControls.innerHTML = "";
+      Object.entries(axisMeta).forEach(([axis, meta]) => {
+        createSlider({
+          parent: setpointControls,
+          id: `target-${axis}`,
+          label: meta.label,
+          min: meta.min,
+          max: meta.max,
+          step: meta.step,
+          value: params[axis].target * meta.scale,
+          formatter: v => `${Number(v).toFixed(axis === "altitude" ? 1 : 0)}${meta.unit}`,
+          onInput: v => params[axis].target = v * meta.invScale
+        });
+      });
+    }
+
+    function buildPidUI() {
+      pidControls.innerHTML = "";
+      const axis = state.activeAxis;
+      Object.entries(pidRanges).forEach(([key, range]) => {
+        createSlider({
+          parent: pidControls,
+          id: `pid-${key}`,
+          label: range.label,
+          min: range.min,
+          max: range.max,
+          step: range.step,
+          value: params[axis][key],
+          formatter: v => Number(v).toFixed(key === "ki" ? 2 : 1),
+          onInput: v => params[axis][key] = v
+        });
+      });
+    }
+
+    const axisDescriptions = {
+      roll: { orb: "RL", text: "绕机体 X 轴倾斜，观察左右侧翻响应" },
+      pitch: { orb: "PT", text: "绕机体 Y 轴倾斜，观察前后俯仰响应" },
+      yaw: { orb: "YW", text: "绕机体 Z 轴旋转，观察机头方向响应" },
+      altitude: { orb: "ALT", text: "沿垂直方向运动，观察高度保持响应" }
+    };
+
+    function setAxisPickerOpen(open) {
+      axisPicker.classList.toggle("open", open);
+      axisPickerButton.setAttribute("aria-expanded", String(open));
+    }
+
+    function setActiveAxis(axis) {
+      if (!axisMeta[axis]) return;
+      state.activeAxis = axis;
+      activeAxisTag.textContent = axisMeta[axis].short;
+      chartAxisTag.textContent = axisMeta[axis].short;
+      axisPickerLabel.textContent = axisMeta[axis].label;
+      axisPickerSub.textContent = axisDescriptions[axis].text;
+      axisOrb.textContent = axisDescriptions[axis].orb;
+      axisOptions.forEach(option => {
+        const isActive = option.dataset.axis === axis;
+        option.classList.toggle("active", isActive);
+        option.setAttribute("aria-selected", String(isActive));
+      });
+      history.length = 0;
+      buildPidUI();
+      setAxisPickerOpen(false);
+    }
+
+    axisPickerButton.addEventListener("click", () => setAxisPickerOpen(!axisPicker.classList.contains("open")));
+    axisOptions.forEach(option => option.addEventListener("click", () => setActiveAxis(option.dataset.axis)));
+    document.addEventListener("click", event => { if (!axisPicker.contains(event.target)) setAxisPickerOpen(false); });
+    document.addEventListener("keydown", event => { if (event.key === "Escape") setAxisPickerOpen(false); });
+
+    document.getElementById("presetStable").addEventListener("click", () => {
+      Object.assign(params.roll, { kp: 16.0, ki: 0.0, kd: 5.0 });
+      Object.assign(params.pitch, { kp: 16.0, ki: 0.18, kd: 5.0 });
+      Object.assign(params.yaw, { kp: 14.0, ki: 0.08, kd: 6.2 });
+      Object.assign(params.altitude, { kp: 12.0, ki: 0.25, kd: 4.2 });
+      buildPidUI();
+    });
+
+    document.getElementById("presetAggressive").addEventListener("click", () => {
+      Object.assign(params.roll, { kp: 12.5, ki: 0.45, kd: 2.0 });
+      Object.assign(params.pitch, { kp: 12.5, ki: 0.45, kd: 2.0 });
+      Object.assign(params.yaw, { kp: 8.8, ki: 0.22, kd: 0.9 });
+      Object.assign(params.altitude, { kp: 13.0, ki: 0.8, kd: 2.5 });
+      buildPidUI();
+    });
+
+    document.getElementById("disturb").addEventListener("click", () => {
+      state.disturbance.roll += (Math.random() > 0.5 ? 1 : -1) * 8;
+      state.disturbance.pitch += (Math.random() > 0.5 ? 1 : -1) * 8;
+      state.disturbance.yaw += (Math.random() > 0.5 ? 1 : -1) * 4;
+      state.disturbance.altitude += (Math.random() > 0.5 ? 1 : -1) * 6;
+    });
+
+    document.getElementById("toggleWind").addEventListener("click", e => {
+      state.wind = !state.wind;
+      e.target.textContent = state.wind ? "关闭阵风" : "开启阵风";
+      windStatus.textContent = `阵风：${state.wind ? "开启" : "关闭"}`;
+    });
+
+    document.getElementById("reset").addEventListener("click", resetDrone);
+
+    function resetDrone() {
+      state.roll = 0;
+      state.pitch = 0;
+      state.yaw = 0;
+      state.altitude = params.altitude.target;
+      state.rollRate = 0;
+      state.pitchRate = 0;
+      state.yawRate = 0;
+      state.altitudeRate = 0;
+      state.disturbance.roll = 0;
+      state.disturbance.pitch = 0;
+      state.disturbance.yaw = 0;
+      state.disturbance.altitude = 0;
+      Object.values(controllers).forEach(c => c.reset());
+      history.length = 0;
+      trailPoints.length = 0;
+    }
+
+    buildSetpointUI();
+    buildPidUI();
+
+    const container = document.getElementById("scene");
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x07101f, 12, 42);
+
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(6, 5, 8);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 2, 0);
+
+    const hemi = new THREE.HemisphereLight(0x9fd7ff, 0x101624, 1.8);
+    scene.add(hemi);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    keyLight.position.set(5, 8, 6);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 40;
+    keyLight.shadow.camera.left = -9;
+    keyLight.shadow.camera.right = 9;
+    keyLight.shadow.camera.top = 9;
+    keyLight.shadow.camera.bottom = -9;
+    keyLight.shadow.bias = -0.00018;
+    keyLight.shadow.normalBias = 0.025;
+    scene.add(keyLight);
+    scene.add(keyLight.target);
+
+    const grid = new THREE.GridHelper(18, 36, 0x2d93b8, 0x244360);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.45;
+    scene.add(grid);
+
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x081223, roughness: 0.9, metalness: 0.1, transparent: true, opacity: 0.55 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(24, 24), groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const drone = new THREE.Group();
+    scene.add(drone);
+
+    const viewLightTarget = new THREE.Vector3();
+    const viewLightOffset = new THREE.Vector3();
+
+    function updateViewDependentLighting() {
+      viewLightTarget.copy(drone.position);
+      viewLightTarget.y = Math.max(1.8, drone.position.y * 0.75);
+      const viewDirection = camera.position.clone().sub(controls.target).normalize();
+      const sideDirection = new THREE.Vector3().crossVectors(camera.up, viewDirection).normalize();
+      viewLightOffset.copy(viewDirection).multiplyScalar(7.0).addScaledVector(sideDirection, 2.2).addScaledVector(camera.up, 4.4);
+      keyLight.position.copy(viewLightTarget).add(viewLightOffset);
+      keyLight.target.position.copy(viewLightTarget);
+      keyLight.target.updateMatrixWorld();
+    }
+
+    function makeRoundedBox(w, h, d, color) {
+      const geo = new THREE.BoxGeometry(w, h, d, 3, 3, 3);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.35 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      return mesh;
+    }
+
+    const body = makeRoundedBox(1.15, 0.26, 0.72, 0x2f5f9f);
+    drone.add(body);
+
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.42, 32), new THREE.MeshStandardMaterial({ color: 0x59d7ff, roughness: 0.3, metalness: 0.2 }));
+    nose.rotation.z = -Math.PI / 2;
+    nose.position.x = 0.78;
+    nose.castShadow = true;
+    drone.add(nose);
+
+    const armMat = new THREE.MeshStandardMaterial({ color: 0xa8c7ff, roughness: 0.35, metalness: 0.45 });
+    const rotorMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.4, metalness: 0.3 });
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0x59d7ff, transparent: true, opacity: 0.18, side: THREE.DoubleSide });
+    const propellers = [];
+    const armSegments = [];
+    const motors = [];
+    const motorPositions = [[1.15, 0, 1.15], [1.15, 0, -1.15], [-1.15, 0, 1.15], [-1.15, 0, -1.15]];
+
+    function createArmToMotor(x, y, z) {
+      const motorVector = new THREE.Vector3(x, y, z);
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, motorVector.length(), 20), armMat);
+      arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), motorVector.clone().normalize());
+      arm.position.set(x / 2, y / 2, z / 2);
+      arm.castShadow = true;
+      arm.receiveShadow = true;
+      drone.add(arm);
+      armSegments.push(arm);
+    }
+
+    motorPositions.forEach((p, idx) => {
+      const [x, y, z] = p;
+      createArmToMotor(x, y, z);
+      const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.16, 32), armMat);
+      motor.position.set(x, y + 0.03, z);
+      motor.castShadow = true;
+      motor.receiveShadow = true;
+      drone.add(motor);
+      motors.push(motor);
+      const prop = new THREE.Group();
+      prop.position.set(x, y + 0.16, z);
+      const blade1 = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.025, 0.075), rotorMat);
+      const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.025, 0.9), rotorMat);
+      blade1.castShadow = true;
+      blade2.castShadow = true;
+      const disk = new THREE.Mesh(new THREE.CircleGeometry(0.53, 48), glowMat);
+      disk.rotation.x = -Math.PI / 2;
+      prop.add(blade1, blade2, disk);
+      drone.add(prop);
+      propellers.push({ group: prop, dir: idx % 2 === 0 ? 1 : -1 });
+    });
+
+    const targetDrone = drone.clone(true);
+    targetDrone.traverse(obj => {
+      if (obj.material) {
+        obj.material = obj.material.clone();
+        obj.material.transparent = true;
+        obj.material.opacity = 0.16;
+        obj.material.depthWrite = false;
+      }
+    });
+    scene.add(targetDrone);
+
+    const altitudeLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x59d7ff, transparent: true, opacity: 0.55 }));
+    scene.add(altitudeLine);
+
+    const trailPoints = [];
+    const trailGeo = new THREE.BufferGeometry();
+    const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0x59d7ff, transparent: true, opacity: 0.7 }));
+    scene.add(trail);
+
+    const rings = new THREE.Group();
+    scene.add(rings);
+    for (let h = 1; h <= 5; h++) {
+      rings.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(new THREE.EllipseCurve(0, 0, 1.7, 1.7, 0, Math.PI * 2).getPoints(96).map(p => new THREE.Vector3(p.x, h, p.y))),
+        new THREE.LineBasicMaterial({ color: 0x335b80, transparent: true, opacity: 0.28 })
+      ));
+    }
+
+    const chart = document.getElementById("chart");
+    const ctx = chart.getContext("2d");
+    const history = [];
+    const maxHistory = 260;
+
+    function drawChart() {
+      const w = chart.width;
+      const h = chart.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = "rgba(255,255,255,0.10)";
+      ctx.lineWidth = 1;
+      for (let i = 1; i < 5; i++) {
+        const y = (h / 5) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+      const axis = state.activeAxis;
+      const scale = axisMeta[axis].scale;
+      const values = history.flatMap(d => [d.target * scale, d.current * scale, d.error * scale]);
+      const maxAbs = Math.max(1, ...values.map(v => Math.abs(v))) * 1.18;
+      function plot(key, color) {
+        if (history.length < 2) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = key === "error" ? 1.6 : 2.2;
+        ctx.beginPath();
+        history.forEach((d, i) => {
+          const x = (i / (maxHistory - 1)) * w;
+          const y = h / 2 - ((d[key] * scale) / maxAbs) * (h * 0.42);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+      plot("target", "#fbbf24");
+      plot("current", "#59d7ff");
+      plot("error", "#fb7185");
+      ctx.fillStyle = "rgba(231,238,252,0.68)";
+      ctx.font = "12px Inter, Microsoft YaHei UI, system-ui, sans-serif";
+      ctx.fillText(`±${maxAbs.toFixed(axis === "altitude" ? 1 : 0)}${axisMeta[axis].unit}`, 12, 20);
+    }
+
+    const clock = new THREE.Clock();
+
+    function step(dt) {
+      dt = Math.min(dt, 0.033);
+      state.time += dt;
+      const windRoll = state.wind ? Math.sin(state.time * 1.7) * 0.55 + Math.sin(state.time * 4.1) * 0.18 : 0;
+      const windPitch = state.wind ? Math.cos(state.time * 1.3) * 0.45 : 0;
+      const windAlt = state.wind ? Math.sin(state.time * 0.9) * 0.35 : 0;
+      const rollOut = controllers.roll.update(params.roll.target, state.roll, dt);
+      const pitchOut = controllers.pitch.update(params.pitch.target, state.pitch, dt);
+      const yawOut = controllers.yaw.update(params.yaw.target, state.yaw, dt);
+      const altOut = controllers.altitude.update(params.altitude.target, state.altitude, dt);
+      state.outputs.roll = rollOut;
+      state.outputs.pitch = pitchOut;
+      state.outputs.yaw = yawOut;
+      state.outputs.altitude = altOut;
+      const rollAccel = rollOut * 0.75 - 2.4 * state.rollRate + state.disturbance.roll + windRoll;
+      const pitchAccel = pitchOut * 0.75 - 2.4 * state.pitchRate + state.disturbance.pitch + windPitch;
+      const yawAccel = yawOut * 0.45 - 1.7 * state.yawRate + state.disturbance.yaw;
+      const altAccel = altOut * 0.55 - 2.2 * state.altitudeRate + state.disturbance.altitude + windAlt;
+      state.rollRate += rollAccel * dt;
+      state.pitchRate += pitchAccel * dt;
+      state.yawRate += yawAccel * dt;
+      state.altitudeRate += altAccel * dt;
+      state.roll += state.rollRate * dt;
+      state.pitch += state.pitchRate * dt;
+      state.yaw += state.yawRate * dt;
+      state.altitude += state.altitudeRate * dt;
+      state.roll = clamp(state.roll, -70 * DEG, 70 * DEG);
+      state.pitch = clamp(state.pitch, -70 * DEG, 70 * DEG);
+      state.altitude = clamp(state.altitude, 0.15, 6.5);
+      if (state.altitude <= 0.16 && state.altitudeRate < 0) state.altitudeRate *= -0.2;
+      Object.keys(state.disturbance).forEach(axis => { state.disturbance[axis] *= Math.exp(-dt * 2.2); });
+    }
+
+    function updateVisuals(dt) {
+      drone.position.set(Math.sin(state.pitch) * 1.4, state.altitude, -Math.sin(state.roll) * 1.4);
+      drone.rotation.set(state.pitch, state.yaw, -state.roll, "YXZ");
+      targetDrone.position.set(Math.sin(params.pitch.target) * 1.4, params.altitude.target, -Math.sin(params.roll.target) * 1.4);
+      targetDrone.rotation.set(params.pitch.target, params.yaw.target, -params.roll.target, "YXZ");
+      propellers.forEach((p, i) => {
+        const boost = Math.abs(state.outputs.altitude) * 0.015 + 0.7;
+        p.group.rotation.y += p.dir * dt * 32 * boost;
+        const motorMix = 1 + 0.012 * (state.outputs.altitude + (i < 2 ? state.outputs.roll : -state.outputs.roll));
+        p.group.scale.setScalar(clamp(motorMix, 0.82, 1.22));
+      });
+      altitudeLine.geometry.dispose();
+      altitudeLine.geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(drone.position.x, 0, drone.position.z), new THREE.Vector3(drone.position.x, state.altitude, drone.position.z)]);
+      trailPoints.push(drone.position.clone());
+      if (trailPoints.length > 180) trailPoints.shift();
+      trailGeo.setFromPoints(trailPoints);
+      controls.target.y = lerp(controls.target.y, state.altitude, 0.03);
+      controls.update();
+      updateViewDependentLighting();
+    }
+
+    function updateHUD() {
+      const axis = state.activeAxis;
+      const target = params[axis].target;
+      const current = state[axis];
+      const error = target - current;
+      const output = state.outputs[axis];
+      currentValue.textContent = fmt(axis, current);
+      targetValue.textContent = fmt(axis, target);
+      errorValue.textContent = fmt(axis, error);
+      outputValue.textContent = output.toFixed(2);
+      const absErr = Math.abs(error * axisMeta[axis].scale);
+      const rate = Math.abs(state[`${axis}Rate`] || 0) * axisMeta[axis].scale;
+      statusLight.classList.remove("warn", "bad");
+      if (absErr > (axis === "altitude" ? 0.45 : 10) || rate > (axis === "altitude" ? 1.4 : 45)) {
+        statusLight.textContent = "振荡/大误差";
+        statusLight.classList.add("bad");
+      } else if (absErr > (axis === "altitude" ? 0.12 : 3)) {
+        statusLight.textContent = "收敛中";
+        statusLight.classList.add("warn");
+      } else {
+        statusLight.textContent = "稳定";
+      }
+      history.push({ target, current, error });
+      if (history.length > maxHistory) history.shift();
+      drawChart();
+    }
+
+    function runSelfTests() {
+      const results = [];
+      const assert = (name, condition) => {
+        if (!condition) throw new Error(`自检失败：${name}`);
+        results.push(`✓ ${name}`);
+      };
+      const rootStyles = getComputedStyle(document.documentElement);
+      const bodyFont = getComputedStyle(document.body).fontFamily;
+      const metricFont = getComputedStyle(document.querySelector(".metric .value")).fontFamily;
+
+      assert("THREE 模块已加载", Boolean(THREE && THREE.Scene && THREE.WebGLRenderer));
+      assert("OrbitControls 已加载", typeof OrbitControls === "function");
+      assert("四个控制轴存在", ["roll", "pitch", "yaw", "altitude"].every(axis => axis in params && axis in controllers));
+      assert("PID 输出被限幅", controllers.roll.update(999, 0, 0.016) <= PID_OUTPUT_LIMIT);
+      assert("PID 参数范围已扩大", pidRanges.kp.max === 60 && pidRanges.ki.max === 15 && pidRanges.kd.max === 40);
+      assert("默认 PID 参数为快速收敛配置", params.roll.kp === 16.0 && params.roll.ki === 0.0 && params.roll.kd === 5.0 && params.altitude.kp === 12.0 && params.altitude.kd === 4.2);
+      assert("clamp 下限正确", clamp(-10, -2, 2) === -2);
+      assert("clamp 上限正确", clamp(10, -2, 2) === 2);
+      assert("目标值滑块数量正确", setpointControls.querySelectorAll('input[type="range"]').length === 4);
+      assert("PID 滑块数量正确", pidControls.querySelectorAll('input[type="range"]').length === 3);
+      assert("滑条圆角容器数量正确", document.querySelectorAll(".slider-shell").length === 7);
+      assert("滑条进度变量已初始化", Boolean(document.querySelector('input[type="range"]').style.getPropertyValue("--progress")));
+      assert("浮窗滚动条已隐藏", getComputedStyle(document.querySelector(".left")).scrollbarWidth === "none" || getComputedStyle(document.querySelector(".left")).msOverflowStyle === "none");
+      assert("调节轴选择器已替换为自定义软圆角控件", Boolean(document.querySelector(".axis-picker .axis-picker-button")));
+      assert("调节轴选择器选项数量正确", axisOptions.length === 4);
+      assert("字体 CSS 变量已定义", rootStyles.getPropertyValue("--font-ui").trim().length > 0 && rootStyles.getPropertyValue("--font-mono").trim().length > 0);
+      assert("全局字体族已应用", bodyFont && bodyFont.length > 0 && bodyFont !== "serif");
+      assert("数值卡片字体族已应用", metricFont && metricFont.length > 0 && metricFont !== bodyFont);
+      assert("X 型机臂数量正确", armSegments.length === motorPositions.length);
+      assert("电机数量正确", motors.length === motorPositions.length);
+      assert("机身中心连接盘已删除", !drone.children.some(child => child.geometry && child.geometry.type === "CylinderGeometry" && Math.abs(child.position.x) < 1e-6 && Math.abs(child.position.y) < 1e-6 && Math.abs(child.position.z) < 1e-6));
+      assert("机臂中点与电机方向匹配", armSegments.every((arm, index) => {
+        const [x, y, z] = motorPositions[index];
+        return Math.abs(arm.position.x - x / 2) < 1e-6 && Math.abs(arm.position.y - y / 2) < 1e-6 && Math.abs(arm.position.z - z / 2) < 1e-6;
+      }));
+      assert("视角相关阴影光源已启用", keyLight.castShadow && keyLight.target.parent === scene);
+      assert("阴影相机范围已配置", keyLight.shadow.camera.left === -9 && keyLight.shadow.camera.right === 9);
+      assert("渲染器 canvas 已挂载", container.querySelector("canvas") === renderer.domElement);
+
+      console.groupCollapsed("Drone PID Demo self tests");
+      results.forEach(item => console.log(item));
+      console.groupEnd();
+      testPanel.textContent = `自检通过：${results.length} 项；模块解析、PID、UI、字体、渲染器均正常。`;
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      step(dt);
+      updateVisuals(dt);
+      updateHUD();
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    runSelfTests();
+    animate();
+  </script>
+</body>
+</html>
